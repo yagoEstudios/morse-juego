@@ -19,17 +19,17 @@
   .pgmorse { min-height:34px; font-family:"Consolas",monospace; font-size:24px;
              text-align:center; color:var(--accent); letter-spacing:4px; margin:8px 0 12px;
              word-break:break-all; }
-  .keys { display:grid; grid-template-columns:repeat(auto-fill,minmax(40px,1fr)); gap:6px; }
-  .keys button { padding:12px 0; font-size:16px; font-weight:bold; background:#333; color:var(--fg);
-                 border-radius:8px; }
-  .keys button:active { background:var(--accent); color:#06232e; }
+  .keybtn { width:100%; padding:44px 0; font-size:22px; font-weight:bold; border-radius:12px;
+            background:var(--accent); color:#06232e; user-select:none; -webkit-user-select:none;
+            touch-action:none; }
+  .keybtn.down { background:#2a8fbf; transform:scale(0.99); }
   .pgctrl { display:flex; gap:8px; margin-top:10px; }
   .pgctrl button { flex:1; }
   @media (max-width:700px){
     body { padding:14px; }
     .app { flex-direction:column; }
     h1 { font-size:24px; }
-    .keys { grid-template-columns:repeat(auto-fill,minmax(38px,1fr)); }
+    .keybtn { padding:52px 0; }
     .stats b { font-size:20px; }
   }
   h1 { text-align:center; font-size:28px; margin:0 0 4px; }
@@ -107,15 +107,13 @@
 
     <div class="col">
       <div class="panel pg">
-        <h2>🎹 Playground</h2>
-        <p class="hint">Pulsa letras para escribir y oírlas en Morse a la velocidad elegida.</p>
+        <h2>🎹 Playground — manipulador Morse</h2>
+        <p class="hint">Mantén pulsado: <b>corto</b> = punto, <b>largo</b> = raya. Las pausas separan
+          letras y palabras. Se adapta a la velocidad (PPM) de arriba. También vale la barra
+          espaciadora.</p>
         <div class="pgtext" id="pgtext"></div>
         <div class="pgmorse" id="pgmorse"></div>
-        <div class="keys" id="keys"></div>
-        <div class="pgctrl">
-          <button id="pgspace" class="ghost">␣ espacio</button>
-          <button id="pgdel" class="ghost">⌫ borrar</button>
-        </div>
+        <button id="key" class="keybtn">● PULSA AQUÍ</button>
         <div class="pgctrl">
           <button id="pgplay">▶ Reproducir todo</button>
           <button id="pgclear" class="ghost">🗑 Limpiar</button>
@@ -300,10 +298,12 @@ stopBtn.onclick = ()=>{
 skipBtn.onclick = ()=>{ if(playing) endRound(false); };
 answer.addEventListener("keydown", e=>{ if(e.key==="Enter") check(); });
 
-// --- Playground ---
+// --- Playground: manipulador Morse ---
+const REV={}; Object.entries(MORSE).forEach(([k,v])=>REV[v]=k);
 const pgtext=document.getElementById("pgtext"), pgmorse=document.getElementById("pgmorse"),
-      keys=document.getElementById("keys");
-let pgStr="", pgOsc=null, pgTimers=[];
+      keyBtn=document.getElementById("key");
+let pgStr="", pgOsc=null, pgTimers=[];          // texto decodificado + repro
+let keyOsc=null, keyGain=null, pressStart=0, curSym="", gapTimer=null;
 
 function pgStop(){
   pgTimers.forEach(clearTimeout); pgTimers=[];
@@ -318,18 +318,67 @@ function pgPlay(text){
   events.forEach(e=> pgTimers.push(
     setTimeout(()=>{ pgmorse.textContent += e.sym; }, e.at*1000)));
 }
-function pgRender(){ pgtext.textContent = pgStr.toUpperCase(); }
+function pgRender(){ pgtext.textContent = pgStr.toUpperCase() || "…"; }
 
-Object.keys(MORSE).forEach(ch=>{
-  const b=document.createElement("button");
-  b.textContent=ch;
-  b.onclick=()=>{ pgStr+=ch; pgRender(); pgPlay(ch); };
-  keys.appendChild(b);
+// tono continuo mientras se mantiene pulsado
+function toneOn(){
+  if(!ctx) ctx = new (window.AudioContext||window.webkitAudioContext)();
+  if(ctx.state==="suspended") ctx.resume();
+  keyGain = ctx.createGain(); keyGain.gain.value=0; keyGain.connect(ctx.destination);
+  keyOsc = ctx.createOscillator(); keyOsc.type="sine"; keyOsc.frequency.value=FREQ;
+  keyOsc.connect(keyGain); keyOsc.start();
+  keyGain.gain.setTargetAtTime(0.4, ctx.currentTime, 0.005);
+}
+function toneOff(){
+  if(keyGain) keyGain.gain.setTargetAtTime(0, ctx.currentTime, 0.005);
+  if(keyOsc){ const o=keyOsc; setTimeout(()=>{ try{o.stop();}catch(e){} }, 60); }
+  keyOsc=null; keyGain=null;
+}
+function commitLetter(){
+  if(curSym){
+    pgStr += REV[curSym] || "¿?";
+    curSym=""; pgRender(); pgmorse.textContent="";
+  }
+  // pausa aun mas larga -> espacio de palabra
+  const u = unitSec()*1000;
+  gapTimer = setTimeout(()=>{ if(pgStr && !pgStr.endsWith(" ")){ pgStr+=" "; pgRender(); } }, 4*u);
+}
+function keyDown(){
+  if(pressStart) return;            // ya pulsado
+  clearTimeout(gapTimer);
+  pressStart = performance.now();
+  keyBtn.classList.add("down");
+  toneOn();
+}
+function keyUp(){
+  if(!pressStart) return;
+  const dur = performance.now() - pressStart; pressStart=0;
+  keyBtn.classList.remove("down");
+  toneOff();
+  const u = unitSec()*1000;
+  curSym += dur < 2*u ? "." : "-";
+  pgmorse.textContent = curSym;
+  clearTimeout(gapTimer);
+  gapTimer = setTimeout(commitLetter, 3*u);   // gap inter-caracter
+}
+
+keyBtn.addEventListener("mousedown", e=>{ e.preventDefault(); keyDown(); });
+window.addEventListener("mouseup", keyUp);
+keyBtn.addEventListener("touchstart", e=>{ e.preventDefault(); keyDown(); }, {passive:false});
+keyBtn.addEventListener("touchend", e=>{ e.preventDefault(); keyUp(); }, {passive:false});
+keyBtn.addEventListener("contextmenu", e=> e.preventDefault());
+document.addEventListener("keydown", e=>{
+  if(e.code==="Space" && document.activeElement!==answer){ e.preventDefault(); keyDown(); }
 });
-document.getElementById("pgspace").onclick=()=>{ pgStr+=" "; pgRender(); };
-document.getElementById("pgdel").onclick=()=>{ pgStr=pgStr.slice(0,-1); pgRender(); };
+document.addEventListener("keyup", e=>{
+  if(e.code==="Space" && document.activeElement!==answer){ e.preventDefault(); keyUp(); }
+});
+
 document.getElementById("pgplay").onclick=()=>{ pgPlay(pgStr); };
-document.getElementById("pgclear").onclick=()=>{ pgStop(); pgStr=""; pgRender(); pgmorse.textContent=""; };
+document.getElementById("pgclear").onclick=()=>{
+  pgStop(); clearTimeout(gapTimer); pgStr=""; curSym=""; pgRender(); pgmorse.textContent="";
+};
+pgRender();
 </script>
 </body>
 </html>
