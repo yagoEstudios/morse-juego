@@ -224,7 +224,7 @@ function check(){
 
 startBtn.onclick = startRound;
 replayBtn.onclick = ()=>{ if(playing) scheduleMorse(current); };
-stopBtn.onclick = ()=>{ stopAudio(); };
+stopBtn.onclick = ()=>{ stopAudio(); cancelAnimationFrame(rafId); timetext.textContent += " ⏸"; };
 skipBtn.onclick = ()=>{ if(playing) endRound(false); };
 answer.addEventListener("keydown", e=>{ if(e.key==="Enter") check(); });
 </script>
