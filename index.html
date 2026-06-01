@@ -109,8 +109,8 @@
       <div class="panel pg">
         <h2>🎹 Playground — manipulador Morse</h2>
         <p class="hint">Mantén pulsado: <b>corto</b> = punto, <b>largo</b> = raya. Las pausas separan
-          letras y palabras. Se adapta a <b>tu</b> ritmo (no al PPM de arriba). También vale la
-          barra espaciadora.</p>
+          letras y palabras. Tras una breve pausa decodifica calibrándose con <b>tu</b> ritmo (no
+          con el PPM de arriba). También vale la barra espaciadora.</p>
         <div class="pgtext" id="pgtext"></div>
         <div class="pgmorse" id="pgmorse"></div>
         <button id="key" class="keybtn">● PULSA AQUÍ</button>
@@ -303,8 +303,8 @@ const REV={}; Object.entries(MORSE).forEach(([k,v])=>REV[v]=k);
 const pgtext=document.getElementById("pgtext"), pgmorse=document.getElementById("pgmorse"),
       keyBtn=document.getElementById("key");
 let pgStr="", pgOsc=null, pgTimers=[];          // texto decodificado + repro
-let keyOsc=null, keyGain=null, pressStart=0, curSym="", gapTimer=null;
-let unitEst=120;   // duracion estimada de un punto (ms); se adapta a TU ritmo
+let keyOsc=null, keyGain=null, pressStart=0, gapBefore=0, lastUp=0, decodeTimer=null;
+let seq=[];        // {dur, gap} de cada pulsacion; se decodifica al pausar
 
 function pgStop(){
   pgTimers.forEach(clearTimeout); pgTimers=[];
@@ -335,34 +335,62 @@ function toneOff(){
   if(keyOsc){ const o=keyOsc; setTimeout(()=>{ try{o.stop();}catch(e){} }, 60); }
   keyOsc=null; keyGain=null;
 }
-function commitLetter(){
-  if(curSym){
-    pgStr += REV[curSym] || "¿?";
-    curSym=""; pgRender(); pgmorse.textContent="";
+// k-means de 2 grupos en 1D: separa puntos de rayas (o gaps cortos de largos)
+function split2(arr){
+  const s=[...arr].sort((a,b)=>a-b);
+  let c1=s[0], c2=s[s.length-1];
+  for(let it=0; it<12; it++){
+    const g1=[], g2=[];
+    for(const v of s) (Math.abs(v-c1)<=Math.abs(v-c2)?g1:g2).push(v);
+    const m=a=> a.length ? a.reduce((x,y)=>x+y,0)/a.length : 0;
+    if(g1.length) c1=m(g1); if(g2.length) c2=m(g2);
   }
-  // pausa aun mas larga -> espacio de palabra
-  gapTimer = setTimeout(()=>{ if(pgStr && !pgStr.endsWith(" ")){ pgStr+=" "; pgRender(); } }, 4*unitEst);
+  return [Math.min(c1,c2), Math.max(c1,c2)];
 }
+
+// decodifica toda la secuencia calibrando con TUS pulsaciones
+function decode(){
+  if(!seq.length){ pgStr=""; pgRender(); pgmorse.textContent=""; return; }
+  const durs = seq.map(e=>e.dur);
+  let [dot, dash] = split2(durs);
+  let dthr;
+  if(dash < dot*1.8){ dthr = 180; }      // un solo tipo: umbral absoluto de respaldo
+  else dthr = (dot+dash)/2;
+  const unit = Math.min(dot, dthr*0.6);  // ms aprox de un punto
+  const letterGap = 2*unit, wordGap = 5*unit;
+
+  let out="", morse="", letter="";
+  const flush=(sep)=>{ out += REV[letter]||"¿?"; morse += letter+sep; letter=""; };
+  seq.forEach((e,i)=>{
+    if(i>0){
+      if(e.gap > wordGap){ flush(" / "); out+=" "; }
+      else if(e.gap > letterGap){ flush(" "); }
+    }
+    letter += e.dur < dthr ? "." : "-";
+  });
+  out += REV[letter]||"¿?"; morse += letter;
+  pgStr = out; pgRender(); pgmorse.textContent = morse;
+}
+
 function keyDown(){
   if(pressStart) return;            // ya pulsado
-  clearTimeout(gapTimer);
-  pressStart = performance.now();
+  clearTimeout(decodeTimer);
+  const now = performance.now();
+  gapBefore = lastUp ? now - lastUp : 0;
+  pressStart = now;
   keyBtn.classList.add("down");
   toneOn();
 }
 function keyUp(){
   if(!pressStart) return;
-  const dur = performance.now() - pressStart; pressStart=0;
+  const now = performance.now();
+  seq.push({dur: now - pressStart, gap: gapBefore});
+  pressStart=0; lastUp=now;
   keyBtn.classList.remove("down");
   toneOff();
-  const sym = dur < 2*unitEst ? "." : "-";   // umbral relativo a TU ritmo
-  // adapta la estimacion del punto a la secuencia introducida
-  unitEst = sym==="." ? unitEst*0.7 + dur*0.3 : unitEst*0.7 + (dur/3)*0.3;
-  unitEst = Math.max(40, Math.min(600, unitEst));
-  curSym += sym;
-  pgmorse.textContent = curSym;
-  clearTimeout(gapTimer);
-  gapTimer = setTimeout(commitLetter, 2.5*unitEst);   // gap inter-caracter relativo
+  pgmorse.textContent = "…";        // calibrando
+  clearTimeout(decodeTimer);
+  decodeTimer = setTimeout(decode, 700);   // espera y decodifica calibrado
 }
 
 keyBtn.addEventListener("mousedown", e=>{ e.preventDefault(); keyDown(); });
@@ -379,7 +407,7 @@ document.addEventListener("keyup", e=>{
 
 document.getElementById("pgplay").onclick=()=>{ pgPlay(pgStr); };
 document.getElementById("pgclear").onclick=()=>{
-  pgStop(); clearTimeout(gapTimer); pgStr=""; curSym=""; unitEst=120; pgRender(); pgmorse.textContent="";
+  pgStop(); clearTimeout(decodeTimer); seq=[]; lastUp=0; pgStr=""; pgRender(); pgmorse.textContent="";
 };
 pgRender();
 </script>
