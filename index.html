@@ -109,8 +109,8 @@
       <div class="panel pg">
         <h2>🎹 Playground — manipulador Morse</h2>
         <p class="hint">Mantén pulsado: <b>corto</b> = punto, <b>largo</b> = raya. Las pausas separan
-          letras y palabras. Se adapta a la velocidad (PPM) de arriba. También vale la barra
-          espaciadora.</p>
+          letras y palabras. Se adapta a <b>tu</b> ritmo (no al PPM de arriba). También vale la
+          barra espaciadora.</p>
         <div class="pgtext" id="pgtext"></div>
         <div class="pgmorse" id="pgmorse"></div>
         <button id="key" class="keybtn">● PULSA AQUÍ</button>
@@ -304,6 +304,7 @@ const pgtext=document.getElementById("pgtext"), pgmorse=document.getElementById(
       keyBtn=document.getElementById("key");
 let pgStr="", pgOsc=null, pgTimers=[];          // texto decodificado + repro
 let keyOsc=null, keyGain=null, pressStart=0, curSym="", gapTimer=null;
+let unitEst=120;   // duracion estimada de un punto (ms); se adapta a TU ritmo
 
 function pgStop(){
   pgTimers.forEach(clearTimeout); pgTimers=[];
@@ -340,8 +341,7 @@ function commitLetter(){
     curSym=""; pgRender(); pgmorse.textContent="";
   }
   // pausa aun mas larga -> espacio de palabra
-  const u = unitSec()*1000;
-  gapTimer = setTimeout(()=>{ if(pgStr && !pgStr.endsWith(" ")){ pgStr+=" "; pgRender(); } }, 4*u);
+  gapTimer = setTimeout(()=>{ if(pgStr && !pgStr.endsWith(" ")){ pgStr+=" "; pgRender(); } }, 4*unitEst);
 }
 function keyDown(){
   if(pressStart) return;            // ya pulsado
@@ -355,11 +355,14 @@ function keyUp(){
   const dur = performance.now() - pressStart; pressStart=0;
   keyBtn.classList.remove("down");
   toneOff();
-  const u = unitSec()*1000;
-  curSym += dur < 2*u ? "." : "-";
+  const sym = dur < 2*unitEst ? "." : "-";   // umbral relativo a TU ritmo
+  // adapta la estimacion del punto a la secuencia introducida
+  unitEst = sym==="." ? unitEst*0.7 + dur*0.3 : unitEst*0.7 + (dur/3)*0.3;
+  unitEst = Math.max(40, Math.min(600, unitEst));
+  curSym += sym;
   pgmorse.textContent = curSym;
   clearTimeout(gapTimer);
-  gapTimer = setTimeout(commitLetter, 3*u);   // gap inter-caracter
+  gapTimer = setTimeout(commitLetter, 2.5*unitEst);   // gap inter-caracter relativo
 }
 
 keyBtn.addEventListener("mousedown", e=>{ e.preventDefault(); keyDown(); });
@@ -376,7 +379,7 @@ document.addEventListener("keyup", e=>{
 
 document.getElementById("pgplay").onclick=()=>{ pgPlay(pgStr); };
 document.getElementById("pgclear").onclick=()=>{
-  pgStop(); clearTimeout(gapTimer); pgStr=""; curSym=""; pgRender(); pgmorse.textContent="";
+  pgStop(); clearTimeout(gapTimer); pgStr=""; curSym=""; unitEst=120; pgRender(); pgmorse.textContent="";
 };
 pgRender();
 </script>
