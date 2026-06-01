@@ -193,6 +193,7 @@ function startRound(){
   answer.disabled=false; answer.value=""; answer.focus();
   feedback.textContent="";
   replayBtn.disabled=false; skipBtn.disabled=false; stopBtn.disabled=false; startBtn.disabled=true;
+  paused=false; stopBtn.textContent="⏹ Parar";
   tick();
 }
 
@@ -231,7 +232,23 @@ function check(){
 
 startBtn.onclick = startRound;
 replayBtn.onclick = ()=>{ if(playing) scheduleMorse(current); };
-stopBtn.onclick = ()=>{ stopAudio(); cancelAnimationFrame(rafId); timetext.textContent += " ⏸"; };
+let paused=false, remaining=0;
+stopBtn.onclick = ()=>{
+  if(!playing) return;
+  if(!paused){                       // pausar
+    paused=true;
+    stopAudio();
+    cancelAnimationFrame(rafId);
+    remaining = (deadline - performance.now())/1000;
+    timetext.textContent = remaining.toFixed(1)+" s ⏸";
+    stopBtn.textContent = "▶ Continuar";
+  } else {                           // reanudar
+    paused=false;
+    deadline = performance.now() + remaining*1000;
+    stopBtn.textContent = "⏹ Parar";
+    tick();
+  }
+};
 skipBtn.onclick = ()=>{ if(playing) endRound(false); };
 answer.addEventListener("keydown", e=>{ if(e.key==="Enter") check(); });
 </script>
