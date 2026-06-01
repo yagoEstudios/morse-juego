@@ -9,7 +9,29 @@
   * { box-sizing:border-box; }
   body { font-family:Arial,Helvetica,sans-serif; background:var(--bg); color:var(--fg);
          margin:0; padding:24px; display:flex; justify-content:center; }
-  .wrap { width:100%; max-width:640px; }
+  .wrap { width:100%; max-width:960px; }
+  .app { display:flex; gap:16px; align-items:flex-start; }
+  .col { flex:1; min-width:0; }
+  .pg h2 { font-size:18px; margin:0 0 4px; }
+  .pg .hint { font-size:12px; color:#999; margin:0 0 12px; }
+  .pgtext { min-height:40px; font-size:26px; text-align:center; background:#111;
+            border-radius:8px; padding:8px; letter-spacing:3px; word-break:break-word; }
+  .pgmorse { min-height:34px; font-family:"Consolas",monospace; font-size:24px;
+             text-align:center; color:var(--accent); letter-spacing:4px; margin:8px 0 12px;
+             word-break:break-all; }
+  .keys { display:grid; grid-template-columns:repeat(auto-fill,minmax(40px,1fr)); gap:6px; }
+  .keys button { padding:12px 0; font-size:16px; font-weight:bold; background:#333; color:var(--fg);
+                 border-radius:8px; }
+  .keys button:active { background:var(--accent); color:#06232e; }
+  .pgctrl { display:flex; gap:8px; margin-top:10px; }
+  .pgctrl button { flex:1; }
+  @media (max-width:700px){
+    body { padding:14px; }
+    .app { flex-direction:column; }
+    h1 { font-size:24px; }
+    .keys { grid-template-columns:repeat(auto-fill,minmax(38px,1fr)); }
+    .stats b { font-size:20px; }
+  }
   h1 { text-align:center; font-size:28px; margin:0 0 4px; }
   .sub { text-align:center; color:#999; margin:0 0 20px; font-size:14px; }
   .panel { background:#262626; border-radius:12px; padding:20px; margin-bottom:16px; }
@@ -49,7 +71,7 @@
   <p class="sub">Escucha el pitido y escribe la frase. <kbd>Enter</kbd> para comprobar.</p>
 
   <div class="panel">
-    <label>Velocidad: <span id="wpmlabel">12</span> PPM (palabras por minuto)</label>
+    <label>Velocidad: <span id="wpmlabel">12</span> PPM (palabras por minuto) — afecta al juego y al playground</label>
     <input type="range" id="wpm" min="5" max="30" step="1" value="12">
     <div class="row" style="margin-top:8px;color:#777;font-size:12px;">
       <div>← más lento (fácil)</div>
@@ -57,27 +79,49 @@
     </div>
   </div>
 
-  <div class="panel">
-    <div class="timerbar"><div class="timerfill" id="fill"></div></div>
-    <div class="timetext" id="timetext">Pulsa Empezar</div>
+  <div class="app">
+    <div class="col">
+      <div class="panel">
+        <div class="timerbar"><div class="timerfill" id="fill"></div></div>
+        <div class="timetext" id="timetext">Pulsa Empezar</div>
 
-    <div class="morsedisplay" id="morsedisplay"></div>
+        <div class="morsedisplay" id="morsedisplay"></div>
 
-    <div class="controls">
-      <button id="start">▶ Empezar</button>
-      <button id="replay" class="ghost" disabled>🔁 Repetir</button>
-      <button id="stop" class="ghost" disabled>⏹ Parar</button>
-      <button id="skip" class="ghost" disabled>⏭ Saltar</button>
+        <div class="controls">
+          <button id="start">▶ Empezar</button>
+          <button id="replay" class="ghost" disabled>🔁 Repetir</button>
+          <button id="stop" class="ghost" disabled>⏹ Parar</button>
+          <button id="skip" class="ghost" disabled>⏭ Saltar</button>
+        </div>
+
+        <input id="answer" placeholder="escribe lo que oigas…" autocomplete="off" disabled>
+        <div class="feedback" id="feedback"></div>
+      </div>
+
+      <div class="panel stats">
+        <div><b id="score">0</b><span>aciertos</span></div>
+        <div><b id="streak">0</b><span>racha</span></div>
+        <div><b id="total">0</b><span>frases</span></div>
+      </div>
     </div>
 
-    <input id="answer" placeholder="escribe lo que oigas…" autocomplete="off" disabled>
-    <div class="feedback" id="feedback"></div>
-  </div>
-
-  <div class="panel stats">
-    <div><b id="score">0</b><span>aciertos</span></div>
-    <div><b id="streak">0</b><span>racha</span></div>
-    <div><b id="total">0</b><span>frases</span></div>
+    <div class="col">
+      <div class="panel pg">
+        <h2>🎹 Playground</h2>
+        <p class="hint">Pulsa letras para escribir y oírlas en Morse a la velocidad elegida.</p>
+        <div class="pgtext" id="pgtext"></div>
+        <div class="pgmorse" id="pgmorse"></div>
+        <div class="keys" id="keys"></div>
+        <div class="pgctrl">
+          <button id="pgspace" class="ghost">␣ espacio</button>
+          <button id="pgdel" class="ghost">⌫ borrar</button>
+        </div>
+        <div class="pgctrl">
+          <button id="pgplay">▶ Reproducir todo</button>
+          <button id="pgclear" class="ghost">🗑 Limpiar</button>
+        </div>
+      </div>
+    </div>
   </div>
 
   <footer>
@@ -108,15 +152,9 @@ let ctx;
 const FREQ = 600;
 function unitSec(){ const wpm = +wpmEl.value; return 1.2 / wpm; } // PARIS standard
 
-let activeOsc=null, revealTimers=[];
-
-function stopAudio(){
-  revealTimers.forEach(clearTimeout); revealTimers=[];
-  if(activeOsc){ try{ activeOsc.stop(); }catch(e){} activeOsc=null; }
-}
-
-function scheduleMorse(text){
-  stopAudio();
+// Construye y programa el audio Morse de un texto. No toca ningun display ni
+// estado: devuelve {osc, events, dur} para que cada llamante lo gestione.
+function buildMorseAudio(text){
   if(!ctx) ctx = new (window.AudioContext||window.webkitAudioContext)();
   if(ctx.state==="suspended") ctx.resume();
   const u = unitSec();
@@ -126,7 +164,6 @@ function scheduleMorse(text){
   const osc = ctx.createOscillator();
   osc.type = "sine"; osc.frequency.value = FREQ;
   osc.connect(gain);
-  activeOsc = osc;
 
   const t0 = ctx.currentTime;
   let t = t0 + 0.15;
@@ -153,12 +190,23 @@ function scheduleMorse(text){
   }
   osc.start();
   osc.stop(t+0.05);
+  return {osc, events, dur:t-t0};
+}
 
+// --- audio del juego ---
+let activeOsc=null, revealTimers=[];
+function stopAudio(){
+  revealTimers.forEach(clearTimeout); revealTimers=[];
+  if(activeOsc){ try{ activeOsc.stop(); }catch(e){} activeOsc=null; }
+}
+function scheduleMorse(text){
+  stopAudio();
+  const {osc, events, dur} = buildMorseAudio(text);
+  activeOsc = osc;
   morsedisplay.textContent = "";
   events.forEach(e=> revealTimers.push(
     setTimeout(()=>{ morsedisplay.textContent += e.sym; }, e.at*1000)));
-
-  return t - t0; // duracion total aprox en seg
+  return dur;
 }
 
 // --- estado del juego ---
@@ -251,6 +299,37 @@ stopBtn.onclick = ()=>{
 };
 skipBtn.onclick = ()=>{ if(playing) endRound(false); };
 answer.addEventListener("keydown", e=>{ if(e.key==="Enter") check(); });
+
+// --- Playground ---
+const pgtext=document.getElementById("pgtext"), pgmorse=document.getElementById("pgmorse"),
+      keys=document.getElementById("keys");
+let pgStr="", pgOsc=null, pgTimers=[];
+
+function pgStop(){
+  pgTimers.forEach(clearTimeout); pgTimers=[];
+  if(pgOsc){ try{ pgOsc.stop(); }catch(e){} pgOsc=null; }
+}
+function pgPlay(text){
+  pgStop();
+  if(!text.trim()) return;
+  const {osc, events} = buildMorseAudio(text);  // usa el WPM actual
+  pgOsc = osc;
+  pgmorse.textContent = "";
+  events.forEach(e=> pgTimers.push(
+    setTimeout(()=>{ pgmorse.textContent += e.sym; }, e.at*1000)));
+}
+function pgRender(){ pgtext.textContent = pgStr.toUpperCase(); }
+
+Object.keys(MORSE).forEach(ch=>{
+  const b=document.createElement("button");
+  b.textContent=ch;
+  b.onclick=()=>{ pgStr+=ch; pgRender(); pgPlay(ch); };
+  keys.appendChild(b);
+});
+document.getElementById("pgspace").onclick=()=>{ pgStr+=" "; pgRender(); };
+document.getElementById("pgdel").onclick=()=>{ pgStr=pgStr.slice(0,-1); pgRender(); };
+document.getElementById("pgplay").onclick=()=>{ pgPlay(pgStr); };
+document.getElementById("pgclear").onclick=()=>{ pgStop(); pgStr=""; pgRender(); pgmorse.textContent=""; };
 </script>
 </body>
 </html>
