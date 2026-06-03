@@ -150,6 +150,20 @@ let ctx;
 const FREQ = 600;
 function unitSec(){ const wpm = +wpmEl.value; return 1.2 / wpm; } // PARIS standard
 
+// iOS Safari requiere desbloquear el AudioContext con un gesto directo del usuario.
+// Este unlock crea el contexto y reproduce un buffer silencioso en el primer toque/click.
+function unlockAudio() {
+  if (!ctx) ctx = new (window.AudioContext || window.webkitAudioContext)();
+  if (ctx.state === 'suspended') ctx.resume();
+  const buf = ctx.createBuffer(1, 1, 22050);
+  const src = ctx.createBufferSource();
+  src.buffer = buf;
+  src.connect(ctx.destination);
+  src.start(0);
+}
+document.addEventListener('touchstart', unlockAudio, { once: true });
+document.addEventListener('click',      unlockAudio, { once: true });
+
 // Construye y programa el audio Morse de un texto. No toca ningun display ni
 // estado: devuelve {osc, events, dur} para que cada llamante lo gestione.
 function buildMorseAudio(text){
